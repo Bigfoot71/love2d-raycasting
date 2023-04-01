@@ -36,18 +36,18 @@ function Player:setMap(map)
     self.map = map
 end
 
-function Player:move(dt)
+function Player:movement(dt)
 
     local map = self.map
 
-    -- MOVEMENT (WQSE || ZASE) --
+    -- MOVEMENT (WASD || ZQSD) --
 
     local vx, vy = 0, 0
 
     if love.keyboard.isScancodeDown("w") then vy = vy - 1 end
     if love.keyboard.isScancodeDown("s") then vy = vy + 1 end
-    if love.keyboard.isScancodeDown("q") then vx = vx - 1 end
-    if love.keyboard.isScancodeDown("e") then vx = vx + 1 end
+    if love.keyboard.isScancodeDown("a") then vx = vx - 1 end
+    if love.keyboard.isScancodeDown("d") then vx = vx + 1 end
 
     if vx ~= 0 or vy ~= 0 then
 
@@ -75,35 +75,19 @@ function Player:move(dt)
 
     end
 
-    -- ROTATION (AD || QD) --
+end
 
-    if love.keyboard.isScancodeDown("a") then
+function Player:mousemoved(dx,dy)
 
-        local rotSpeed = self.rotSpeed * dt
+    local rotSpeed = .005 * dx * self.rotSpeed
 
-        local old_vx = self.dir_x
-        self.dir_x = self.dir_x * math.cos(-rotSpeed) - self.dir_y * math.sin(-rotSpeed)
-        self.dir_y = old_vx * math.sin(-rotSpeed) + self.dir_y * math.cos(-rotSpeed)
+    local old_vx = self.dir_x
+    self.dir_x = self.dir_x * math.cos(rotSpeed) - self.dir_y * math.sin(rotSpeed)
+    self.dir_y = old_vx * math.sin(rotSpeed) + self.dir_y * math.cos(rotSpeed)
 
-        local old_plane_x = self.plane_x
-        self.plane_x = self.plane_x * math.cos(-rotSpeed) - self.plane_y * math.sin(-rotSpeed)
-        self.plane_y = old_plane_x * math.sin(-rotSpeed) + self.plane_y * math.cos(-rotSpeed)
-
-    end
-
-    if love.keyboard.isScancodeDown("d") then
-
-        local rotSpeed = self.rotSpeed * dt
-
-        local old_vx = self.dir_x
-        self.dir_x = self.dir_x * math.cos(rotSpeed) - self.dir_y * math.sin(rotSpeed)
-        self.dir_y = old_vx * math.sin(rotSpeed) + self.dir_y * math.cos(rotSpeed)
-
-        local old_plane_x = self.plane_x
-        self.plane_x = self.plane_x * math.cos(rotSpeed) - self.plane_y * math.sin(rotSpeed)
-        self.plane_y = old_plane_x * math.sin(rotSpeed) + self.plane_y * math.cos(rotSpeed)
-
-    end
+    local old_plane_x = self.plane_x
+    self.plane_x = self.plane_x * math.cos(rotSpeed) - self.plane_y * math.sin(rotSpeed)
+    self.plane_y = old_plane_x * math.sin(rotSpeed) + self.plane_y * math.cos(rotSpeed)
 
 end
 

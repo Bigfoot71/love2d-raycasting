@@ -3,16 +3,22 @@ local lg = love.graphics
 local floor = math.floor
 local max = math.max
 
+local pixelMaxV = {
+    rgba16 = 65504;
+    rgba8 = 255;
+}
+
 ffi.cdef[[
     typedef struct {
-        uint8_t r, g, b, a;
+        uint16_t r, g, b, a;
     } Pixel;
 ]]
 
 local function getPixel(image, x, y) -- Faster than ImageData:getPixel()
+    local max_value = pixelMaxV[image:getFormat()]
     local ffi_pixel = ffi.cast("Pixel*", image:getFFIPointer())
     local pixel = ffi_pixel[floor(x)+floor(y)*image:getWidth()]
-    return pixel.r/255, pixel.g/255, pixel.b/255, pixel.a/255
+    return pixel.r/max_value, pixel.g/max_value, pixel.b/max_value, pixel.a/max_value
 end
 
 local function getShade(dist)
@@ -32,7 +38,7 @@ return function (self)
     local renderBuffer = self.renderBuffer
     local renderTexture = self.renderTexture
 
-    local draw_wall_lines = not self.texArrays.walls
+    local draw_wall_lines = not textures.walls[1]
 
     -- Draw sky (not textured) --
 
@@ -51,7 +57,7 @@ return function (self)
 
     -- Draw walls (textured) --
 
-    if self.texArrays.walls then
+    if not draw_wall_lines then
 
         renderBuffer:mapPixel(function (x, y)
 
@@ -81,7 +87,7 @@ return function (self)
                     local tex_coord_x = (side == 0) and hit_y%1 or hit_x%1
                     local tex_coord_y = (y - y_top) / wall_h
 
-                    local r,g,b,a = getPixel(wall_tex,tex_coord_x * tex_width, tex_coord_y * tex_height)
+                    local r,g,b,a = getPixel(wall_tex, tex_coord_x*tex_width, tex_coord_y*tex_height)
                     local shade = getShade(wall_dist)
 
                     return r * shade, g * shade, b * shade, a

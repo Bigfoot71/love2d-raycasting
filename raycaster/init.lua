@@ -18,16 +18,17 @@ function Raycaster:init(map, hardware_accel, screen_width, screen_height, num_ra
     if not self.render_data then
 
         self.render_data = {
-            pos = {};
-            dir = {};
-            plane = {};
+            pos     = {};
+            dir     = {};
+            plane   = {};
         }
 
         self.texArrays = {}
 
         self.textures = {
-            ground  = {};   -- -inf -> 0
-            walls   = {};   -- 1 -> inf
+            ceiling = {};   -- 1 -> 10 (0 == 1st texture || 0.1 == 2nd texture || -7.9 == 10th texture)
+            ground  = {};   -- -65504 -> 0
+            walls   = {};   -- 1 -> 65504
         }
 
     else
@@ -38,21 +39,26 @@ function Raycaster:init(map, hardware_accel, screen_width, screen_height, num_ra
         rd.plane[1], rd.plane[2] = nil, nil
         for i = 1, #rd do rd[i] = nil end
 
-        if self.frameBuffer then
+        if self.frameBuffer then            -- Hardware
             self.frameBuffer:release()
             self.renderShader:release()
-            self.dataBuffer:release()
-            self.dataBufferTexture:release()
-        elseif self.renderBuffer then
+            self.raysBuffer:release()
+            self.raysBufferTex:release()
+        end
+
+        if self.renderBuffer then       -- Software
             self.renderBuffer:release()
             self.renderTexture:release()
+        end
+
+        if self.mapDataTex then
+            self.mapDataTex:release()
         end
 
     end
 
     -- Init new values --
 
-    self:setMap(map)
     self.num_rays = num_rays
     self.screen_width = screen_width
     self.screen_height = screen_height
@@ -63,34 +69,91 @@ function Raycaster:init(map, hardware_accel, screen_width, screen_height, num_ra
     -- Define render function --
 
     if hardware_accel then
-
         self.frameBuffer = love.graphics.newCanvas(screen_width, screen_height)
         self.renderShader = love.graphics.newShader(PATH.."/renderer.glsl")
-
-        self.dataBuffer = love.image.newImageData(screen_width, 2, "rgba16f")
-        self.dataBufferTexture = love.graphics.newImage(self.dataBuffer)
-
+        self.raysBuffer = love.image.newImageData(screen_width, 2, "rgba16f")
+        self.raysBufferTex = love.graphics.newImage(self.raysBuffer)
         self.renderView = love.filesystem.load(PATH.."/render_h.lua")()
-
     else
-
         self.renderBuffer = love.image.newImageData(screen_width, screen_height)
         self.renderTexture = lg.newImage(self.renderBuffer)
-
         self.renderView = love.filesystem.load(PATH.."/render_s.lua")()
-
     end
+
+    -- Load map --
+
+    self:setMap(map)
+
+end
+
+function Raycaster:genMapDataTex() -- Generate an image of the map
+
+    local floor, ceil, abs = math.floor, math.ceil, math.abs
+
+    -- Define the map and its dimensions locally --
+
+    local map = self.map
+    local w = self.map_width
+    local h = self.map_height
+
+    -- Define the parsing function for ceiling texture numbers --
+
+    local getCeilingNum = function (n)
+        local gw_num = n < 0 and ceil(n) or floor(n)
+        local c_num = (abs(n)-abs(gw_num))*10
+        return c_num, gw_num
+    end
+
+    -- Start generating map texture --
+
+    if self.mapDataTex then self.mapDataTex:release() end
+    local mapDataBuffer = love.image.newImageData(w,h,"rgba16f")
+
+    mapDataBuffer:mapPixel(function (x,y)
+
+        local ceiling_num = 0;
+        local ground_or_wall_num;
+
+        local tex_num = map[y+1][x+1]
+
+        if tex_num ~= floor(tex_num) then
+            ceiling_num, ground_or_wall_num  = getCeilingNum(tex_num)
+            ceiling_num, ground_or_wall_num = ceiling_num, (ground_or_wall_num <= 0) and -ground_or_wall_num or ground_or_wall_num-1
+        else
+            ceiling_num, ground_or_wall_num = 0, (tex_num <= 0) and -tex_num or tex_num-1
+        end
+
+        return ground_or_wall_num, ceiling_num, 0, 0
+
+    end)
+
+    self.mapDataTex = lg.newImage(mapDataBuffer)
+    self.mapDataTex:setFilter("nearest","nearest")
+
+    mapDataBuffer:release()
+
+    -- Send map texture to shader --
+
+    self.renderShader:send(
+        "mapBuffer", self.mapDataTex
+    )
+
+    self.renderShader:send("mapSize", {
+        self.map_width, self.map_height
+    })
 
 end
 
 function Raycaster:setMap(map)
+
     self.map_width = #map[1]
     self.map_height = #map
     self.map = map
-end
 
-function Raycaster:posToMap(x,y)
-    return math.floor(x), math.floor(y)
+    if self.hardware_accel then
+        self:genMapDataTex()
+    end
+
 end
 
 function Raycaster:setTextures(type, ...)
@@ -117,12 +180,22 @@ function Raycaster:setTextures(type, ...)
 
     end
 
-    if self.texArrays[type] then
-        self.texArrays[type]:release()
+    -- Create image array and send to shader --
+
+    if self.hardware_accel then
+
+        if self.texArrays[type] then self.texArrays[type]:release() end
+        self.texArrays[type] = lg.newArrayImage(textures)
+
+        self.renderShader:send(type.."Tex", self.texArrays[type])
+        self.renderShader:send(type.."TexCount", #self.textures[type])
+
     end
 
-    self.texArrays[type] = lg.newArrayImage(textures)
+end
 
+function Raycaster:posToMap(x,y)
+    return math.floor(x), math.floor(y)
 end
 
 function Raycaster:getPlaneFromDir(dir_x, dir_y) -- Takes as input a direction to return its vector on the orthogonal plane from -0.66 to 0.66 (getPerpendicularVector)
@@ -190,7 +263,7 @@ function Raycaster:update(px, py, dir_x, dir_y, plane_x, plane_y)
                 side = 1
             end
 
-        until not map[map_y] or map[map_y][map_x] ~= 0;
+        until not map[map_y] or map[map_y][map_x] > 0;
 
         -- Add radius data to render_data table --
 
@@ -246,7 +319,7 @@ function Raycaster:renderMap(x,y,w,h,tile_size)
 
         for ty, xs in ipairs(map) do
             for tx, value in ipairs(xs) do
-                if value ~= 0 then
+                if value > 0 then
                     lg.rectangle("fill", (tx-1)*tile_size, (ty-1)*tile_size, tile_size, tile_size)
                 end
             end
@@ -284,7 +357,7 @@ function Raycaster:resize(w,h,adjust_num_rays)
 
                 local j = i*9
 
-                for k = 0, 10 do
+                for k = 0, 8 do
                     rd[j+k] = nil
                 end
 
@@ -300,12 +373,12 @@ function Raycaster:resize(w,h,adjust_num_rays)
     if self.hardware_accel then
 
         self.frameBuffer:release()
-        self.dataBuffer:release()
-        self.dataBufferTexture:release()
+        self.raysBuffer:release()
+        self.raysBufferTex:release()
 
         self.frameBuffer = love.graphics.newCanvas(self.screen_width, self.screen_height)
-        self.dataBuffer = love.image.newImageData(self.screen_width, 2, "rgba16f")
-        self.dataBufferTexture = love.graphics.newImage(self.dataBuffer)
+        self.raysBuffer = love.image.newImageData(self.screen_width, 2, "rgba16f")
+        self.raysBufferTex = love.graphics.newImage(self.raysBuffer)
 
     else
 
