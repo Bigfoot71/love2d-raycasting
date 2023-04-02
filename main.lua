@@ -93,7 +93,7 @@ function love.load()
         "images/ceiling/3.png"
     )
 
-    -- Init love2d --
+    -- Love2d settings --
 
     love.mouse.setRelativeMode(true)
 
@@ -107,6 +107,7 @@ function love.update(dt)
 
     raycaster:update(
         player.x, player.y,
+        player.z, player.pitch,
         player.dir_x, player.dir_y,
         player.plane_x, player.plane_y
     )
@@ -140,7 +141,9 @@ end
 function love.draw()
 
     raycaster:renderView()
-    raycaster:renderMap(lg.getWidth()-128, 0, 128,128)
+
+    local size_map = lg.getWidth()*.2
+    raycaster:renderMap(lg.getWidth()-size_map, 0, size_map, size_map)
 
     lg.setColor(1,1,0)
     lg.print(tostring(love.timer.getFPS()).." FPS")

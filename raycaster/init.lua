@@ -34,9 +34,12 @@ function Raycaster:init(map, hardware_accel, screen_width, screen_height, num_ra
     else
 
         local rd = self.render_data
-        rd.pos[1], rd.pos[2] = nil, nil
-        rd.dir[1], rd.dir[2] = nil, nil
+
+        rd.pos[1], rd.pos[2], rd.pos[3] = nil, nil, nil
         rd.plane[1], rd.plane[2] = nil, nil
+        rd.dir[1], rd.dir[2] = nil, nil
+        rd.pitch = nil
+
         for i = 1, #rd do rd[i] = nil end
 
         if self.frameBuffer then            -- Hardware
@@ -69,11 +72,16 @@ function Raycaster:init(map, hardware_accel, screen_width, screen_height, num_ra
     -- Define render function --
 
     if hardware_accel then
+
         self.frameBuffer = love.graphics.newCanvas(screen_width, screen_height)
         self.renderShader = love.graphics.newShader(PATH.."/renderer.glsl")
+
         self.raysBuffer = love.image.newImageData(screen_width, 2, "rgba16f")
         self.raysBufferTex = love.graphics.newImage(self.raysBuffer)
+        self.renderShader:send("raysBuffer", self.raysBufferTex)
+
         self.renderView = love.filesystem.load(PATH.."/render_h.lua")()
+
     else
         self.renderBuffer = love.image.newImageData(screen_width, screen_height)
         self.renderTexture = lg.newImage(self.renderBuffer)
@@ -203,7 +211,7 @@ function Raycaster:getPlaneFromDir(dir_x, dir_y) -- Takes as input a direction t
     return (dir_y/length)*.66, (dir_x/length)*.66
 end
 
-function Raycaster:update(px, py, dir_x, dir_y, plane_x, plane_y)
+function Raycaster:update(px, py, pz, pitch, dir_x, dir_y, plane_x, plane_y)
 
     -- Define local self values --
 
@@ -216,10 +224,10 @@ function Raycaster:update(px, py, dir_x, dir_y, plane_x, plane_y)
     local o_map_x, o_map_y = self:posToMap(px,py)
 
     local rd = self.render_data
-    rd.ground_tex_num = map[o_map_y][o_map_x]
+    rd.pos[1], rd.pos[2], rd.pos[3] = px, py, pz
     rd.plane[1], rd.plane[2] = plane_x, plane_y
     rd.dir[1], rd.dir[2] = dir_x, dir_y
-    rd.pos[1], rd.pos[2] = px, py
+    rd.pitch = pitch
 
     -- Perform raycasting --
 
@@ -241,13 +249,20 @@ function Raycaster:update(px, py, dir_x, dir_y, plane_x, plane_y)
         -- We calculate the initial step and the length to the side --
 
         local step_x, side_dist_x;
+
+        if ray_dir_x < 0 then
+            step_x, side_dist_x = -1, (px-map_x)*dx
+        else
+            step_x, side_dist_x = 1, (map_x+1-px)*dx
+        end
+
         local step_y, side_dist_y;
 
-        if ray_dir_x < 0 then step_x, side_dist_x = -1, (px-map_x)*dx
-        else step_x, side_dist_x = 1, (map_x+1-px)*dx end
-
-        if ray_dir_y < 0 then step_y, side_dist_y = -1, (py-map_y)*dy
-        else step_y, side_dist_y = 1, (map_y+1-py)*dy end
+        if ray_dir_y < 0 then
+            step_y, side_dist_y = -1, (py-map_y)*dy
+        else
+            step_y, side_dist_y = 1, (map_y+1-py)*dy
+        end
 
         -- We launch the ray --
 
@@ -295,16 +310,21 @@ function Raycaster:renderMap(x,y,w,h,tile_size)
     -- Define local self values --
 
     local map = self.map
-    local map_width = self.map_width
-    local map_height = self.map_height
+    local map_row = self.map_width
+    local map_col = self.map_height
 
-    map_width = map_width * tile_size
-    map_height = map_height * tile_size
+    local map_width = map_row * tile_size
+    local map_height = map_col * tile_size
 
     -- Define local render_data values --
 
     local rd = self.render_data
+    local n_rd = #rd
+
     local px, py = rd.pos[1]-1, rd.pos[2]-1
+    local px_on_tile, py_on_tile = px*tile_size, py*tile_size
+
+    -- Render 2D map --
 
     lg.push()
     lg.translate(x,y)
@@ -317,11 +337,9 @@ function Raycaster:renderMap(x,y,w,h,tile_size)
 
         lg.setColor(.125,.125,.125)
 
-        for ty, xs in ipairs(map) do
-            for tx, value in ipairs(xs) do
-                if value > 0 then
-                    lg.rectangle("fill", (tx-1)*tile_size, (ty-1)*tile_size, tile_size, tile_size)
-                end
+        for iy = 1, map_col do local tx = map[iy]
+            for ix = 1, map_row do local v = tx[ix]
+                if v > 0 then lg.rectangle("fill", (ix-1)*tile_size, (iy-1)*tile_size, tile_size, tile_size) end
             end
         end
 
@@ -329,14 +347,23 @@ function Raycaster:renderMap(x,y,w,h,tile_size)
 
         lg.setColor(1,0,0)
 
-        for i = 1, #rd-8, 9 do
-            lg.line(px*tile_size, py*tile_size, (rd[i]-1)*tile_size, (rd[i+1]-1)*tile_size)
+        local s = lg.getLineStyle()
+        local j = lg.getLineJoin()
+
+        lg.setLineStyle("rough")
+        lg.setLineJoin("none")
+
+        for i = 1, n_rd-8, 9 do
+            lg.line(px_on_tile, py_on_tile, (rd[i]-1)*tile_size, (rd[i+1]-1)*tile_size)
         end
+
+        lg.setLineStyle(s)
+        lg.setLineJoin(j)
 
         -- Draw player position --
 
         lg.setColor(1,1,0)
-        lg.circle("fill", px*tile_size, py*tile_size, tile_size*.25)
+        lg.circle("fill", px_on_tile, py_on_tile, tile_size*.25)
 
     lg.pop()
 

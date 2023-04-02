@@ -1,3 +1,6 @@
+const vec4 skyColor     = vec4(0.0, 0.1, 0.5, 1.0);
+const vec4 groundColor  = vec4(0.0, 0.5, 0.1, 1.0);
+
 uniform Image raysBuffer;
 
 uniform Image mapBuffer;
@@ -12,9 +15,10 @@ uniform int ceilingTexCount;
 uniform ArrayImage wallsTex;
 uniform int wallsTexCount;
 
-uniform vec2 pos;
+uniform vec3 pos;
 uniform vec2 dir;
 uniform vec2 plane;
+uniform float pitch;
 
 struct RaysData {
 
@@ -68,8 +72,9 @@ vec4 effect(vec4 c, Image t, vec2 tc, vec2 sc) {
 
     // Get start line and end line of wall //
 
-    float wall_y1 = (-rd.wall_height*.5 + love_ScreenSize.y*.5);
-    float wall_y2 = (rd.wall_height*.5 + love_ScreenSize.y*.5);
+    float half_wall_height = rd.wall_height*0.5, half_screen_height = love_ScreenSize.y*0.5;
+    float wall_y1 = (-half_wall_height + half_screen_height + pitch + (pos.z/rd.dist_to_wall));
+    float wall_y2 = (half_wall_height + half_screen_height + pitch + (pos.z/rd.dist_to_wall));
 
     // Rendering //
 
@@ -80,7 +85,7 @@ vec4 effect(vec4 c, Image t, vec2 tc, vec2 sc) {
 
         shade = getShade(rd.dist_to_wall);
 
-        if (rd.wall_tex_num <= wallsTexCount) {
+        if (rd.wall_tex_num < wallsTexCount) {
 
             vec2 tex_coord = vec2(                          // Coordinates of the texture sample to display [0->1]
                 fract(rd.side == 0 ? rd.hit_y : rd.hit_x),
@@ -95,41 +100,51 @@ vec4 effect(vec4 c, Image t, vec2 tc, vec2 sc) {
 
     } else { // SKY/CEILING and GROUND
 
+        float love_ScreenSize_y_inv = 1.0 / love_ScreenSize.y;
+        float pitch_norm = pitch * love_ScreenSize_y_inv;   // Normalize pitch
+        float pos_z_norm = pos.z * love_ScreenSize_y_inv;   // Normalize pos.z
+
+        bool is_floor = sc.y > wall_y2;
+
         vec2 ray_dir_0 = dir.xy - plane.xy;
         vec2 ray_dir_1 = dir.xy + plane.xy;
 
-        const float pos_z = 0.5;
-        float p, row_distance;
-        vec2 step, map_pos;
+        float p, cam_z;
 
-        if (sc.y < wall_y1) { // SKY/CEILING
+        if (is_floor) {
+            p = tc.y - 0.5 - pitch_norm;
+            cam_z = 0.5 + pos_z_norm;
+        } else {
+            p = 0.5 - tc.y + pitch_norm;
+            cam_z = 0.5 - pos_z_norm;
+        }
 
-            float ceilingTexNum = 0;
+        float row_distance = cam_z / p;
+        vec2 step = row_distance * (ray_dir_1 - ray_dir_0);
+        vec2 map_pos = (pos.xy - 1.0) + row_distance * ray_dir_0 + step * tc.x;
 
-            if (ceilingTexNum <= ceilingTexCount) {
-                shade = getShade(tc.y*30.0);
-                p = (1.0 - tc.y) - pos_z;
-                row_distance = pos_z / p;
-                step = row_distance * (ray_dir_1 - ray_dir_0);
-                map_pos = (pos.xy-1.0) + row_distance * ray_dir_0 + step * tc.x;
-                color = Texel(ceilingTex, vec3(fract(map_pos), getMapValue(map_pos/mapSize).g)) * shade;
+        float textureNum;
+
+        if (is_floor) { // FLOOR
+
+            shade = getShade(((1.0-tc.y)+pitch_norm)*30.0);
+            textureNum = getMapValue(map_pos/mapSize).r;
+
+            if (textureNum < groundTexCount) {
+                color = Texel(groundTex, vec3(fract(map_pos), textureNum)) * shade;
             } else {
-                color = vec4(0.0, 0.1, 0.5, 1.0);
+                color = groundColor * shade;
             }
 
-        } else { // GROUND
+        } else { // SKY || CEILING
 
-            float groundTexNum = 0;
-            shade = getShade((1.0-tc.y)*30.0);
+            textureNum = getMapValue(map_pos/mapSize).g;
 
-            if (groundTexNum <= groundTexCount) {
-                p = tc.y - pos_z;
-                row_distance = pos_z / p;
-                step = row_distance * (ray_dir_1 - ray_dir_0);
-                map_pos = (pos.xy-1.0) + row_distance * ray_dir_0 + step * tc.x;
-                color = Texel(groundTex, vec3(fract(map_pos), getMapValue(map_pos/mapSize).r)) * shade;
+            if (textureNum < ceilingTexCount) {
+                shade = getShade((tc.y-pitch_norm)*30.0);
+                color = Texel(ceilingTex, vec3(fract(map_pos), textureNum)) * shade;
             } else {
-                color = vec4(0.0, 0.5, 0.1, 1.0) * shade;
+                color = skyColor;
             }
 
         }

@@ -8,7 +8,7 @@ return function (self)
     local raysBufferTex = self.raysBufferTex
     local raysBuffer = self.raysBuffer
 
-    -- Gen and send rays data buffer --
+    -- Gen new rays data buffer --
 
     local x = 0
     for i = 1, #rd-8, 9 do
@@ -18,17 +18,17 @@ return function (self)
     end
 
     raysBufferTex:replacePixels(raysBuffer)
-    renderShader:send("raysBuffer", raysBufferTex)
 
     -- Send player values --
 
     renderShader:send("pos", rd.pos)
     renderShader:send("dir", rd.dir)
     renderShader:send("plane", rd.plane)
+    renderShader:send("pitch", rd.pitch)
 
     -- Render raycasting --
 
-    lg.setShader(renderShader)
+    lg.setShader(renderShader)  -- TODO: Make a cleaner and more consistent rendering system
     lg.draw(frameBuffer)
     lg.setShader()
 

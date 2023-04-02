@@ -111,7 +111,11 @@ return function (self)
 
     if draw_wall_lines then
 
+        local s = lg.getLineStyle()
+        local j = lg.getLineJoin()
+
         lg.setLineStyle("rough")
+        lg.setLineJoin("none")
 
         for i = 1, #rd-8, 9 do
 
@@ -135,7 +139,8 @@ return function (self)
 
         end
 
-        lg.setLineStyle("smooth")
+        lg.setLineStyle(s)
+        lg.setLineJoin(j)
 
     end
 
